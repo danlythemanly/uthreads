@@ -1,7 +1,8 @@
 /* uthreads.c 
  *
- * This is a really simple cooperative user thread library that
- * uses setjmp/longjmp to save and restore registers.
+ * This is a really simple cooperative user thread library that uses
+ * setjmp/longjmp to save and restore registers.  There's no notion of
+ * "blocked" threads (it does busy looping).
  *
  * It's just for fun!
  *
@@ -14,7 +15,7 @@
 #include <setjmp.h>
 #include <string.h>
 
-#define STACK_SIZE 8192
+#define STACK_SIZE 4096
 #define ERROR(x...) do {                        \
     fprintf(stderr, x);                         \
     return -1;                                  \
@@ -58,13 +59,6 @@ static int find_next_thread() {
 void uthread_schedule(void) {
     int next_thread;
     
-
-    if ( current_thread == INIT_THREAD_ID ) {
-        current_thread = 0;
-        longjmp(threads[current_thread].regs, 1);
-        /* this should never be reached */
-    }
-
     next_thread = find_next_thread();
     if ( !setjmp(threads[current_thread].regs) ) {
         /* we are saving */
@@ -87,7 +81,11 @@ static void get_born() {
             memcpy(threads[i].regs, 
                    threads[INIT_THREAD_ID].regs, sizeof(jmp_buf));
 
-        uthread_schedule(); 
+        /* switch to first worker */
+        current_thread = 0;
+        longjmp(threads[current_thread].regs, 1);
+
+        /* this should never be reached */
     }
 
     /* if we're back at init, all other threads are finished */
@@ -97,8 +95,7 @@ static void get_born() {
     /* o/w it's a worker: fix stack/base pointer and call fcn */
     asm volatile("movq %0, %%rsp\n\t" 
                  "movq %0, %%rbp" 
-                 : : "r" (&threads[current_thread].stack[STACK_SIZE/2]));
-//                 : : "r" (&threads[current_thread].stack[STACK_SIZE]));
+                 : : "r" (&threads[current_thread].stack[STACK_SIZE]));
 
     worker_fcn(worker_arg);
 
@@ -148,4 +145,3 @@ int uthread_start_threads(int n, void (*fcn)(void *), void *arg) {
     free(threads);
     return 0;
 }
-
